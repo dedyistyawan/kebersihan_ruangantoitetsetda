@@ -1,0 +1,8 @@
+{
+  "name": "Monitoring Kebersihan Ruangan tolitet 031026",
+  "description": "Sistem Informasi Monitoring Kebersihan Toilet dan Ruangan berbasis Google Apps Script Web App \u0026 Google Sheets dengan QR Code, Checklist Inspeksi, dan Dasbor Real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
