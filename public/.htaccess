@@ -6,16 +6,21 @@
   RewriteEngine On
   RewriteBase /
 
-  # Layani file statis yang benar-benar ada langsung dari disk
+  # 1. PENTING: Jangan pernah me-rewrite rute /api/ ke index.html!
+  # Biarkan rute /api/* diteruskan ke server backend Node.js (Passenger / Proxy)
+  RewriteCond %{REQUEST_URI} ^/api/ [NC]
+  RewriteRule ^ - [L]
+
+  # 2. Layani file atau direktori statis yang benar-benar ada di disk
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # Fallback routing SPA ke index.html jika bukan file fisik
+  # 3. Fallback routing SPA React ke index.html HANYA untuk halaman tampilan
   RewriteRule ^ index.html [L]
 </IfModule>
 
-# Keamanan dan Kompresi
+# Keamanan dan Kompresi Header
 <IfModule mod_headers.c>
   Header set X-Content-Type-Options "nosniff"
   Header set X-XSS-Protection "1; mode=block"

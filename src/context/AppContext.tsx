@@ -76,6 +76,7 @@ interface AppContextType {
   syncFromDatabase: () => Promise<{ success: boolean; message?: string; source?: string; counts?: any }>;
   syncToDatabase: () => Promise<{ success: boolean; message: string }>;
   refreshDatabaseStatus: () => Promise<void>;
+  generateLiveSqlScript: () => string;
 
   // UI Actions
   setActiveTab: (tab: AppViewTab) => void;
@@ -424,13 +425,227 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
       });
       await refreshDatabaseStatus();
-      return {
-        success: res.success,
-        message: res.message || (res.success ? 'Data berhasil disinkronkan' : 'Gagal mengirim data ke server')
-      };
+      if (res.success) {
+        return {
+          success: true,
+          message: res.message || 'Data aplikasi berhasil disinkronkan ke database server!'
+        };
+      } else {
+        return {
+          success: false,
+          message: res.message || 'Gagal mengirim data ke server. Anda dapat menggunakan fitur "Salin SQL Data Input Terkini" untuk langsung menyinkronkannya ke phpMyAdmin Hostinger.'
+        };
+      }
     } catch (err: any) {
       return { success: false, message: err?.message || 'Gagal mengirim data ke server' };
     }
+  };
+
+  /**
+   * Helper pembuat skrip SQL live yang 100% merefleksikan seluruh data input terkini
+   * dari aplikasi (Aduan Pengunjung, Saran, Rating, Ceklis Inspeksi, Ruangan, & Petugas).
+   * Siap disalin atau diimpor langsung ke tab "SQL" di phpMyAdmin Hostinger!
+   */
+  const generateLiveSqlScript = (): string => {
+    const now = getNowTimestamp();
+    const esc = (val: any) => {
+      if (val === null || val === undefined) return '';
+      return String(val)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '')
+        .replace(/\n/g, '\\n');
+    };
+
+    let sql = `-- ============================================================================\n`;
+    sql += `-- SKRIP SINKRONISASI DATA INPUT TERKINI SIM-KTR KE MYSQL HOSTINGER\n`;
+    sql += `-- Waktu Ekspor: ${now}\n`;
+    sql += `-- Total: ${pengaduanList.length} Aduan, ${saranList.length} Saran, ${ratingList.length} Rating, ${inspeksiList.length} Log Inspeksi, ${lokasiList.length} Ruangan\n`;
+    sql += `-- Format: MySQL 8.0+, MariaDB 10.4+, phpMyAdmin Hostinger (Aman tanpa error #1044)\n`;
+    sql += `-- ============================================================================\n\n`;
+
+    // 1. Lokasi
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 1. TABEL & DATA MASTER LOKASI (TOILET & RUANGAN)\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`lokasi\` (
+  \`id_lokasi\` VARCHAR(20) NOT NULL PRIMARY KEY,
+  \`nama_ruangan\` VARCHAR(150) NOT NULL,
+  \`kategori\` ENUM('Toilet', 'Ruangan') NOT NULL DEFAULT 'Toilet',
+  \`id_pengampu\` VARCHAR(20) NOT NULL,
+  \`status_terkini\` ENUM('Hijau', 'Kuning', 'Merah') NOT NULL DEFAULT 'Hijau',
+  \`gedung\` VARCHAR(100) DEFAULT 'Gedung Utama',
+  \`lantai\` VARCHAR(50) DEFAULT 'Lantai 1',
+  \`last_update\` VARCHAR(50) DEFAULT NULL,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const l of lokasiList) {
+      sql += `INSERT INTO \`lokasi\` (\`id_lokasi\`, \`nama_ruangan\`, \`kategori\`, \`id_pengampu\`, \`status_terkini\`, \`gedung\`, \`lantai\`, \`last_update\`) ` +
+        `VALUES ('${esc(l.ID_Lokasi)}', '${esc(l.Nama_Ruangan)}', '${esc(l.Kategori)}', '${esc(l.ID_Pengampu)}', '${esc(l.Status_Terkini)}', '${esc(l.Gedung || 'Gedung Utama')}', '${esc(l.Lantai || 'Lantai 1')}', '${esc(l.Last_Update || now)}') ` +
+        `ON DUPLICATE KEY UPDATE \`nama_ruangan\`=VALUES(\`nama_ruangan\`), \`kategori\`=VALUES(\`kategori\`), \`id_pengampu\`=VALUES(\`id_pengampu\`), \`status_terkini\`=VALUES(\`status_terkini\`), \`gedung\`=VALUES(\`gedung\`), \`lantai\`=VALUES(\`lantai\`), \`last_update\`=VALUES(\`last_update\`);\n`;
+    }
+    sql += `\n`;
+
+    // 2. Pengampu
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 2. TABEL & DATA PETUGAS & SUPERVISOR\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`pengampu\` (
+  \`id_pengampu\` VARCHAR(20) NOT NULL PRIMARY KEY,
+  \`nama_petugas\` VARCHAR(100) NOT NULL,
+  \`username\` VARCHAR(50) NOT NULL UNIQUE,
+  \`password\` VARCHAR(255) NOT NULL,
+  \`role\` ENUM('Petugas', 'Supervisor') NOT NULL DEFAULT 'Petugas',
+  \`kontak_telegram\` VARCHAR(100) DEFAULT NULL,
+  \`telepon\` VARCHAR(30) DEFAULT NULL,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const p of pengampuList) {
+      sql += `INSERT INTO \`pengampu\` (\`id_pengampu\`, \`nama_petugas\`, \`username\`, \`password\`, \`role\`, \`kontak_telegram\`, \`telepon\`) ` +
+        `VALUES ('${esc(p.ID_Pengampu)}', '${esc(p.Nama_Petugas)}', '${esc(p.Username)}', '${esc(p.Password)}', '${esc(p.Role)}', '${esc(p.Kontak_Telegram || '')}', '${esc(p.Telepon || '')}') ` +
+        `ON DUPLICATE KEY UPDATE \`nama_petugas\`=VALUES(\`nama_petugas\`), \`username\`=VALUES(\`username\`), \`password\`=VALUES(\`password\`), \`role\`=VALUES(\`role\`), \`kontak_telegram\`=VALUES(\`kontak_telegram\`), \`telepon\`=VALUES(\`telepon\`);\n`;
+    }
+    sql += `\n`;
+
+    // 3. Checklist Master
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 3. TABEL & DATA MASTER INDIKATOR CEKLIS\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`checklist_master\` (
+  \`id\` VARCHAR(20) NOT NULL PRIMARY KEY,
+  \`nama\` VARCHAR(200) NOT NULL,
+  \`kategori\` ENUM('Semua', 'Toilet', 'Ruangan') NOT NULL DEFAULT 'Semua',
+  \`deskripsi\` TEXT DEFAULT NULL,
+  \`bobot\` INT NOT NULL DEFAULT 1,
+  \`aktif\` TINYINT(1) NOT NULL DEFAULT 1,
+  \`urutan\` INT NOT NULL DEFAULT 0,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const c of checklistItems) {
+      sql += `INSERT INTO \`checklist_master\` (\`id\`, \`nama\`, \`kategori\`, \`deskripsi\`, \`bobot\`, \`aktif\`, \`urutan\`) ` +
+        `VALUES ('${esc(c.id)}', '${esc(c.nama)}', '${esc(c.kategori)}', '${esc(c.deskripsi || '')}', ${Number(c.bobot) || 1}, ${c.aktif ? 1 : 0}, ${Number(c.urutan) || 0}) ` +
+        `ON DUPLICATE KEY UPDATE \`nama\`=VALUES(\`nama\`), \`kategori\`=VALUES(\`kategori\`), \`deskripsi\`=VALUES(\`deskripsi\`), \`bobot\`=VALUES(\`bobot\`), \`aktif\`=VALUES(\`aktif\`), \`urutan\`=VALUES(\`urutan\`);\n`;
+    }
+    sql += `\n`;
+
+    // 4. Log Pengaduan
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 4. TABEL & DATA LAPORAN PENGADUAN PENGUNJUNG TERKINI (${pengaduanList.length} Data)\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`log_pengaduan\` (
+  \`id\` VARCHAR(50) NOT NULL PRIMARY KEY,
+  \`timestamp\` VARCHAR(50) NOT NULL,
+  \`id_lokasi\` VARCHAR(20) NOT NULL,
+  \`nama_pelapor\` VARCHAR(100) NOT NULL,
+  \`kontak_pelapor\` VARCHAR(50) DEFAULT NULL,
+  \`detail_keluhan\` TEXT NOT NULL,
+  \`status_tindak_lanjut\` ENUM('Pending', 'Proses', 'Selesai') NOT NULL DEFAULT 'Pending',
+  \`kategori_keluhan\` VARCHAR(100) DEFAULT NULL,
+  \`foto_bukti\` LONGTEXT DEFAULT NULL,
+  \`waktu_selesai\` VARCHAR(50) DEFAULT NULL,
+  \`catatan_penyelesaian\` TEXT DEFAULT NULL,
+  \`petugas_penangan\` VARCHAR(100) DEFAULT NULL,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const a of pengaduanList) {
+      const ws = a.Waktu_Selesai ? `'${esc(a.Waktu_Selesai)}'` : 'NULL';
+      const cp = a.Catatan_Penyelesaian ? `'${esc(a.Catatan_Penyelesaian)}'` : 'NULL';
+      const pt = a.Petugas_Penangan ? `'${esc(a.Petugas_Penangan)}'` : 'NULL';
+      sql += `INSERT INTO \`log_pengaduan\` (\`id\`, \`timestamp\`, \`id_lokasi\`, \`nama_pelapor\`, \`kontak_pelapor\`, \`detail_keluhan\`, \`status_tindak_lanjut\`, \`kategori_keluhan\`, \`foto_bukti\`, \`waktu_selesai\`, \`catatan_penyelesaian\`, \`petugas_penangan\`) ` +
+        `VALUES ('${esc(a.id)}', '${esc(a.Timestamp)}', '${esc(a.ID_Lokasi)}', '${esc(a.Nama_Pelapor)}', '${esc(a.Kontak_Pelapor || '')}', '${esc(a.Detail_Keluhan)}', '${esc(a.Status_Tindak_Lanjut)}', '${esc(a.Kategori_Keluhan || '')}', '${esc(a.Foto_Bukti || '')}', ${ws}, ${cp}, ${pt}) ` +
+        `ON DUPLICATE KEY UPDATE \`status_tindak_lanjut\`=VALUES(\`status_tindak_lanjut\`), \`waktu_selesai\`=VALUES(\`waktu_selesai\`), \`catatan_penyelesaian\`=VALUES(\`catatan_penyelesaian\`), \`petugas_penangan\`=VALUES(\`petugas_penangan\`);\n`;
+    }
+    sql += `\n`;
+
+    // 5. Saran Pelayanan
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 5. TABEL & DATA SARAN PELAYANAN PENGUNJUNG TERKINI (${saranList.length} Data)\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`saran_pelayanan\` (
+  \`id\` VARCHAR(50) NOT NULL PRIMARY KEY,
+  \`timestamp\` VARCHAR(50) NOT NULL,
+  \`id_lokasi\` VARCHAR(20) NOT NULL,
+  \`nama_pemberi_saran\` VARCHAR(100) NOT NULL,
+  \`kontak\` VARCHAR(100) DEFAULT NULL,
+  \`kategori_saran\` VARCHAR(100) NOT NULL,
+  \`judul_saran\` VARCHAR(200) NOT NULL,
+  \`detail_saran\` TEXT NOT NULL,
+  \`prioritas\` ENUM('Biasa', 'Penting', 'Mendesak') NOT NULL DEFAULT 'Biasa',
+  \`status_tinjauan\` ENUM('Diterima', 'Diproses', 'Diimplementasikan') NOT NULL DEFAULT 'Diterima',
+  \`tanggapan_supervisor\` TEXT DEFAULT NULL,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const s of saranList) {
+      const tsSpv = s.Tanggapan_Supervisor ? `'${esc(s.Tanggapan_Supervisor)}'` : 'NULL';
+      sql += `INSERT INTO \`saran_pelayanan\` (\`id\`, \`timestamp\`, \`id_lokasi\`, \`nama_pemberi_saran\`, \`kontak\`, \`kategori_saran\`, \`judul_saran\`, \`detail_saran\`, \`prioritas\`, \`status_tinjauan\`, \`tanggapan_supervisor\`) ` +
+        `VALUES ('${esc(s.id)}', '${esc(s.Timestamp)}', '${esc(s.ID_Lokasi)}', '${esc(s.Nama_Pemberi_Saran)}', '${esc(s.Kontak || '')}', '${esc(s.Kategori_Saran)}', '${esc(s.Judul_Saran)}', '${esc(s.Detail_Saran)}', '${esc(s.Prioritas)}', '${esc(s.Status_Tinjauan)}', ${tsSpv}) ` +
+        `ON DUPLICATE KEY UPDATE \`status_tinjauan\`=VALUES(\`status_tinjauan\`), \`tanggapan_supervisor\`=VALUES(\`tanggapan_supervisor\`);\n`;
+    }
+    sql += `\n`;
+
+    // 6. Rating Review
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 6. TABEL & DATA RATING & REVIEW PENGUNJUNG TERKINI (${ratingList.length} Data)\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`rating_review\` (
+  \`id\` VARCHAR(50) NOT NULL PRIMARY KEY,
+  \`timestamp\` VARCHAR(50) NOT NULL,
+  \`id_lokasi\` VARCHAR(20) NOT NULL,
+  \`nama_reviewer\` VARCHAR(100) NOT NULL,
+  \`bintang\` TINYINT NOT NULL DEFAULT 5,
+  \`rating_kebersihan_lantai\` TINYINT DEFAULT 5,
+  \`rating_ketersediaan_air_sabun\` TINYINT DEFAULT 5,
+  \`rating_aroma_keharuman\` TINYINT DEFAULT 5,
+  \`rating_kesigapan_petugas\` TINYINT DEFAULT 5,
+  \`komentar_review\` TEXT DEFAULT NULL,
+  \`rekomendasikan\` TINYINT(1) DEFAULT 1,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const r of ratingList) {
+      sql += `INSERT INTO \`rating_review\` (\`id\`, \`timestamp\`, \`id_lokasi\`, \`nama_reviewer\`, \`bintang\`, \`rating_kebersihan_lantai\`, \`rating_ketersediaan_air_sabun\`, \`rating_aroma_keharuman\`, \`rating_kesigapan_petugas\`, \`komentar_review\`, \`rekomendasikan\`) ` +
+        `VALUES ('${esc(r.id)}', '${esc(r.Timestamp)}', '${esc(r.ID_Lokasi)}', '${esc(r.Nama_Reviewer)}', ${Number(r.Bintang) || 5}, ${Number(r.Rating_Kebersihan_Lantai) || 5}, ${Number(r.Rating_Ketersediaan_Air_Sabun) || 5}, ${Number(r.Rating_Aroma_Keharuman) || 5}, ${Number(r.Rating_Kesigapan_Petugas) || 5}, '${esc(r.Komentar_Review || '')}', ${r.Rekomendasikan ? 1 : 0}) ` +
+        `ON DUPLICATE KEY UPDATE \`komentar_review\`=VALUES(\`komentar_review\`);\n`;
+    }
+    sql += `\n`;
+
+    // 7. Log Inspeksi
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `-- 7. TABEL & DATA RIWAYAT INSPEKSI PETUGAS (${inspeksiList.length} Data)\n`;
+    sql += `-- ----------------------------------------------------------------------------\n`;
+    sql += `CREATE TABLE IF NOT EXISTS \`log_inspeksi\` (
+  \`id\` VARCHAR(50) NOT NULL PRIMARY KEY,
+  \`timestamp\` VARCHAR(50) NOT NULL,
+  \`id_lokasi\` VARCHAR(20) NOT NULL,
+  \`id_pengampu\` VARCHAR(20) NOT NULL,
+  \`skor_kebersihan\` INT NOT NULL DEFAULT 100,
+  \`status_warna\` ENUM('Hijau', 'Kuning', 'Merah') NOT NULL DEFAULT 'Hijau',
+  \`catatan_kritis\` TEXT DEFAULT NULL,
+  \`detail_ceklis_json\` LONGTEXT DEFAULT NULL,
+  \`total_item_diperiksa\` INT DEFAULT 8,
+  \`total_item_lolos\` INT DEFAULT 8,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    for (const i of inspeksiList) {
+      const detailStr = esc(JSON.stringify(i.Detail_Ceklis || {}));
+      sql += `INSERT INTO \`log_inspeksi\` (\`id\`, \`timestamp\`, \`id_lokasi\`, \`id_pengampu\`, \`skor_kebersihan\`, \`status_warna\`, \`catatan_kritis\`, \`detail_ceklis_json\`, \`total_item_diperiksa\`, \`total_item_lolos\`) ` +
+        `VALUES ('${esc(i.id)}', '${esc(i.Timestamp)}', '${esc(i.ID_Lokasi)}', '${esc(i.ID_Pengampu)}', ${Number(i.Skor_Kebersihan) || 100}, '${esc(i.Status_Warna)}', '${esc(i.Catatan_Kritis || '')}', '${detailStr}', ${Number(i.Total_Item_Diperiksa) || 8}, ${Number(i.Total_Item_Lolos) || 8}) ` +
+        `ON DUPLICATE KEY UPDATE \`skor_kebersihan\`=VALUES(\`skor_kebersihan\`), \`status_warna\`=VALUES(\`status_warna\`), \`catatan_kritis\`=VALUES(\`catatan_kritis\`);\n`;
+    }
+    sql += `\n`;
+
+    return sql;
   };
 
   const initHostingerDatabase = async () => {
@@ -1347,6 +1562,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncFromDatabase,
         syncToDatabase,
         refreshDatabaseStatus,
+        generateLiveSqlScript,
         setActiveTab,
         supervisorSubTab,
         setSupervisorSubTab,

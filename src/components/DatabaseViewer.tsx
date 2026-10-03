@@ -30,12 +30,13 @@ export const DatabaseViewer: React.FC = () => {
     initHostingerDatabase,
     syncFromDatabase,
     syncToDatabase,
+    generateLiveSqlScript,
     resetDatabaseToDefault
   } = useApp();
 
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [initMsg, setInitMsg] = useState<string | null>(null);
+  const [initMsg, setInitMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
   type TableName =
     | 'checklist_master'
@@ -45,12 +46,15 @@ export const DatabaseViewer: React.FC = () => {
     | 'saran_pelayanan'
     | 'rating_review'
     | 'log_inspeksi'
+    | 'live_sync_sql'
     | 'mysql_script';
 
-  const [activeTable, setActiveTable] = useState<TableName>('checklist_master');
+  const [activeTable, setActiveTable] = useState<TableName>('live_sync_sql');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLiveSql, setCopiedLiveSql] = useState(false);
 
   const tables: { id: TableName; label: string; count?: number; color: string }[] = [
+    { id: 'live_sync_sql', label: '⚡ Live Sync SQL (Data Terkini)', count: pengaduanList.length + saranList.length + ratingList.length + inspeksiList.length, color: 'text-amber-500' },
     { id: 'checklist_master', label: 'checklist_master', count: checklistItems.length, color: 'text-indigo-600' },
     { id: 'log_pengaduan', label: 'log_pengaduan', count: pengaduanList.length, color: 'text-rose-600' },
     { id: 'saran_pelayanan', label: 'saran_pelayanan', count: saranList.length, color: 'text-blue-600' },
@@ -58,8 +62,36 @@ export const DatabaseViewer: React.FC = () => {
     { id: 'lokasi', label: 'lokasi', count: lokasiList.length, color: 'text-emerald-600' },
     { id: 'pengampu', label: 'pengampu', count: pengampuList.length, color: 'text-purple-600' },
     { id: 'log_inspeksi', label: 'log_inspeksi', count: inspeksiList.length, color: 'text-slate-600' },
-    { id: 'mysql_script', label: 'database_hostinger.sql (Import)', color: 'text-teal-600' }
+    { id: 'mysql_script', label: 'database_hostinger.sql (Master Schema)', color: 'text-teal-600' }
   ];
+
+  const handleCopyLiveSql = () => {
+    const sql = generateLiveSqlScript();
+    navigator.clipboard.writeText(sql);
+    setCopiedLiveSql(true);
+    setInitMsg({
+      text: '✅ Skrip SQL Data Input Terkini berhasil disalin! Silakan buka phpMyAdmin di Hostinger -> klik tab "SQL" -> Tempel (Paste) & Kirim (Go). Seluruh data input aplikasi Anda langsung tersimpan 100% di database MySQL!',
+      isError: false
+    });
+    setTimeout(() => setCopiedLiveSql(false), 3000);
+  };
+
+  const handleDownloadLiveSql = () => {
+    const sql = generateLiveSqlScript();
+    const blob = new Blob([sql], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', url);
+    downloadAnchor.setAttribute('download', `sinkronisasi_simktr_${new Date().toISOString().slice(0, 10)}.sql`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(url);
+    setInitMsg({
+      text: '💾 File sinkronisasi SQL berhasil diunduh. Anda dapat mengimpor file ini di tab "Import" phpMyAdmin Hostinger.',
+      isError: false
+    });
+  };
 
   const handleCopySql = () => {
     fetch('/database_hostinger.sql')
@@ -114,12 +146,36 @@ export const DatabaseViewer: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* TOMBOL UTAMA: SINKRONISASI DATA INPUT TERKINI KE PHPMYADMIN */}
+          <button
+            type="button"
+            onClick={handleCopyLiveSql}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center space-x-2 shadow-md shadow-amber-500/20 transition transform active:scale-95"
+            title="Salin seluruh data input terkini (Aduan, Saran, Rating, Inspeksi) dalam format SQL siap tempel di phpMyAdmin"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>{copiedLiveSql ? '✓ Tersalin ke Clipboard!' : '⚡ Salin SQL Data Input Terkini'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadLiveSql}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
+            title="Unduh file .sql berisi data input terkini untuk diimpor ke phpMyAdmin"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Unduh SQL Terkini</span>
+          </button>
+
           <button
             onClick={async () => {
               setIsSyncing(true);
               setInitMsg(null);
               const res = await syncFromDatabase();
-              setInitMsg(res.message || 'Data aplikasi berhasil disinkronkan langsung dari MySQL Hostinger!');
+              setInitMsg({
+                text: res.message || 'Data aplikasi berhasil disinkronkan langsung dari MySQL Hostinger!',
+                isError: !res.success
+              });
               setIsSyncing(false);
             }}
             disabled={isSyncing}
@@ -129,12 +185,16 @@ export const DatabaseViewer: React.FC = () => {
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isSyncing ? 'Menyinkronkan...' : '🔄 Tarik Data dari MySQL'}</span>
           </button>
+
           <button
             onClick={async () => {
               setIsSyncing(true);
               setInitMsg(null);
               const res = await syncToDatabase();
-              setInitMsg(res.message);
+              setInitMsg({
+                text: res.message,
+                isError: !res.success
+              });
               setIsSyncing(false);
             }}
             disabled={isSyncing}
@@ -144,12 +204,16 @@ export const DatabaseViewer: React.FC = () => {
             <Upload className="w-3.5 h-3.5" />
             <span>📤 Push Data ke MySQL</span>
           </button>
+
           <button
             onClick={async () => {
               setIsInitializing(true);
               setInitMsg(null);
               const res = await initHostingerDatabase();
-              setInitMsg(res.message);
+              setInitMsg({
+                text: res.message,
+                isError: !res.success
+              });
               setIsInitializing(false);
             }}
             disabled={isInitializing}
@@ -158,14 +222,7 @@ export const DatabaseViewer: React.FC = () => {
           >
             <span>{isInitializing ? 'Membuat Tabel...' : '⚡ Inisialisasi Ulang'}</span>
           </button>
-          <a
-            href="/database_hostinger.sql"
-            download="database_hostinger.sql"
-            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Unduh SQL</span>
-          </a>
+
           <button
             onClick={handleExportJson}
             className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition"
@@ -173,6 +230,7 @@ export const DatabaseViewer: React.FC = () => {
             <Download className="w-3.5 h-3.5" />
             <span>Ekspor JSON</span>
           </button>
+
           <button
             onClick={() => {
               if (confirm('Kembalikan data ke awal (default)?')) resetDatabaseToDefault();
@@ -186,8 +244,38 @@ export const DatabaseViewer: React.FC = () => {
       </div>
 
       {initMsg && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-medium">
-          {initMsg}
+        <div
+          className={`p-4 rounded-2xl text-xs space-y-2 border shadow-sm ${
+            initMsg.isError
+              ? 'bg-amber-50 border-amber-200 text-amber-950'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <span className="font-semibold leading-relaxed">{initMsg.text}</span>
+            <button
+              onClick={() => setInitMsg(null)}
+              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+
+          {initMsg.isError && (
+            <div className="pt-2 border-t border-amber-200/70 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+              <span className="text-[11px] text-amber-800">
+                💡 <strong>Solusi Cepat:</strong> Seluruh data input aplikasi Anda (aduan, rating, saran, ceklis) aman tersimpan di aplikasi. Klik tombol di samping untuk menyalin skrip SQL langsung ke phpMyAdmin:
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyLiveSql}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs inline-flex items-center space-x-1.5 transition shrink-0"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Salin SQL Sinkronisasi Sekarang</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -459,6 +547,58 @@ export const DatabaseViewer: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* TABEL LIVE SYNC SQL (DATA INPUT TERKINI) */}
+          {activeTable === 'live_sync_sql' && (
+            <div className="p-5 bg-slate-900 text-slate-200 font-mono text-xs leading-relaxed space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div>
+                  <span className="text-amber-400 font-bold flex items-center space-x-2">
+                    <span>⚡ Skrip SQL Sinkronisasi Data Input Terkini</span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] border border-amber-500/30">
+                      Live Updated
+                    </span>
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Skrip ini otomatis ter-generate dari seluruh input data aplikasi saat ini ({pengaduanList.length} aduan, {saranList.length} saran, {ratingList.length} review, {inspeksiList.length} inspeksi).
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyLiveSql}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center space-x-1.5 shadow-sm transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedLiveSql ? 'Tersalin ke Clipboard!' : 'Salin Skrip SQL Ini'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadLiveSql}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center space-x-1.5 border border-slate-700 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh .sql</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3 Langkah Eksekusi Cepat */}
+              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 text-[11px] text-slate-300 flex flex-wrap gap-4 items-center">
+                <span className="font-bold text-amber-300">Cara Sinkronisasi ke phpMyAdmin:</span>
+                <span>1. Klik tombol <strong>Salin Skrip SQL Ini</strong> di atas</span>
+                <span>&rarr;</span>
+                <span>2. Buka phpMyAdmin Hostinger &rarr; Klik nama database di kiri &rarr; Menu <strong>"SQL"</strong></span>
+                <span>&rarr;</span>
+                <span>3. Tempel (Paste) & Klik <strong>"Kirim / Go"</strong> (Selesai!)</span>
+              </div>
+
+              <pre className="whitespace-pre-wrap overflow-x-auto text-[11px] text-amber-100/90 max-h-[500px] overflow-y-auto p-3 rounded-xl bg-black/40 border border-slate-800">
+                {generateLiveSqlScript()}
+              </pre>
+            </div>
           )}
 
           {/* SKRIP SQL HOSTINGER VIEW */}
