@@ -267,11 +267,89 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tables: []
   });
 
+  /**
+   * Helper pemanggilan API dengan proteksi anti-crash JSON.parse.
+   * Mencegah error "JSON.parse: unexpected character at line 1 column 1"
+   * ketika web server (Hostinger/Passenger/LiteSpeed/Proxy) mengembalikan respons HTML.
+   */
+  const safeFetchJson = async <T = any>(
+    url: string,
+    options?: RequestInit
+  ): Promise<{ success: boolean; data?: T; message?: string; status?: number; raw?: string }> => {
+    try {
+      const res = await fetch(url, options);
+      const rawText = await res.text();
+
+      if (!rawText || !rawText.trim()) {
+        return {
+          success: res.ok,
+          status: res.status,
+          message: res.ok ? 'Sukses' : `Server mengembalikan status ${res.status} tanpa konten.`
+        };
+      }
+
+      const trimmed = rawText.trim();
+
+      // Deteksi jika server mengembalikan halaman HTML (misal error 404, 500, 502, 503 dari Hostinger / Passenger / Reverse Proxy)
+      if (trimmed.startsWith('<') || trimmed.toLowerCase().startsWith('<!doctype')) {
+        let friendlyError = `Server mengembalikan halaman HTML (Status ${res.status} ${res.statusText || ''}). `;
+        if (res.status === 404) {
+          friendlyError += 'Endpoint API tidak ditemukan (404). Pastikan backend server Node.js aktif di Hostinger.';
+        } else if (res.status === 502 || res.status === 503) {
+          friendlyError += 'Layanan Node.js sedang tidak aktif atau gagal dimuat oleh web server (502/503). Periksa Setup Node.js App di Hostinger hPanel.';
+        } else if (res.status === 500) {
+          friendlyError += 'Terjadi kendala internal pada server Node.js (500).';
+        } else {
+          friendlyError += 'Kemungkinan rute backend belum tersambung ke proses Node.js.';
+        }
+
+        return {
+          success: false,
+          status: res.status,
+          message: friendlyError,
+          raw: trimmed.slice(0, 300)
+        };
+      }
+
+      // Coba parsing JSON yang valid
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') {
+          const isSuccess = parsed.success !== undefined ? Boolean(parsed.success) : res.ok;
+          return {
+            success: isSuccess,
+            status: res.status,
+            message: parsed.message || (isSuccess ? 'Operasi berhasil' : `Permintaan gagal (status ${res.status})`),
+            data: parsed
+          };
+        }
+      } catch {
+        return {
+          success: false,
+          status: res.status,
+          message: `Format respon server tidak valid (${trimmed.slice(0, 80)}...)`,
+          raw: trimmed
+        };
+      }
+
+      return {
+        success: res.ok,
+        status: res.status,
+        message: trimmed.slice(0, 150)
+      };
+    } catch (netErr: any) {
+      return {
+        success: false,
+        message: netErr?.message || 'Gagal menghubungi server (Koneksi jaringan terputus atau backend tidak dapat diakses).'
+      };
+    }
+  };
+
   const refreshDatabaseStatus = async () => {
     try {
-      const res = await fetch('/api/database/status');
-      const data = await res.json();
-      if (data) {
+      const res = await safeFetchJson<any>('/api/database/status');
+      if (res.success && res.data) {
+        const data = res.data;
         setDatabaseDetails({
           connected: Boolean(data.connected),
           engine: data.engine || 'In-Memory Simulation',
@@ -296,28 +374,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loadDataFromBackend = async () => {
     try {
-      const res = await fetch('/api/database/pull-all');
-      const text = await res.text();
-      if (text && !text.trim().startsWith('<')) {
-        const result = JSON.parse(text);
-        if (result.success && result.data) {
-          const { lokasi, pengampu, checklist, inspeksi, pengaduan, saran, rating, greetings } = result.data;
-          if (Array.isArray(lokasi) && lokasi.length > 0) setLokasiList(lokasi);
-          if (Array.isArray(pengampu) && pengampu.length > 0) setPengampuList(pengampu);
-          if (Array.isArray(checklist) && checklist.length > 0) setChecklistItems(checklist);
-          if (Array.isArray(inspeksi)) setInspeksiList(inspeksi);
-          if (Array.isArray(pengaduan)) setPengaduanList(pengaduan);
-          if (Array.isArray(saran)) setSaranList(saran);
-          if (Array.isArray(rating)) setRatingList(rating);
-          if (Array.isArray(greetings)) setGreetingMessages(greetings);
+      const res = await safeFetchJson<any>('/api/database/pull-all');
+      if (res.success && res.data && res.data.data) {
+        const result = res.data;
+        const { lokasi, pengampu, checklist, inspeksi, pengaduan, saran, rating, greetings } = result.data;
+        if (Array.isArray(lokasi) && lokasi.length > 0) setLokasiList(lokasi);
+        if (Array.isArray(pengampu) && pengampu.length > 0) setPengampuList(pengampu);
+        if (Array.isArray(checklist) && checklist.length > 0) setChecklistItems(checklist);
+        if (Array.isArray(inspeksi)) setInspeksiList(inspeksi);
+        if (Array.isArray(pengaduan)) setPengaduanList(pengaduan);
+        if (Array.isArray(saran)) setSaranList(saran);
+        if (Array.isArray(rating)) setRatingList(rating);
+        if (Array.isArray(greetings)) setGreetingMessages(greetings);
 
-          return {
-            success: true,
-            source: result.source || (result.connected ? 'MySQL Hostinger' : 'Memori'),
-            counts: result.counts,
-            message: `Berhasil memuat data dari ${result.source || 'Database'}!`
-          };
-        }
+        return {
+          success: true,
+          source: result.source || (result.connected ? 'MySQL Hostinger' : 'Memori'),
+          counts: result.counts,
+          message: `Berhasil memuat data dari ${result.source || 'Database'}!`
+        };
+      } else if (!res.success) {
+        return { success: false, message: res.message || 'Gagal memuat data dari server' };
       }
     } catch (err: any) {
       console.warn('Gagal memuat data dari API pull-all:', err);
@@ -332,7 +409,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncToDatabase = async () => {
     try {
-      const res = await fetch('/api/database/push-all', {
+      const res = await safeFetchJson<any>('/api/database/push-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -346,25 +423,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           greetings: greetingMessages
         })
       });
-      const data = await res.json();
       await refreshDatabaseStatus();
-      return data;
+      return {
+        success: res.success,
+        message: res.message || (res.success ? 'Data berhasil disinkronkan' : 'Gagal mengirim data ke server')
+      };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Gagal mengirim data ke server' };
+      return { success: false, message: err?.message || 'Gagal mengirim data ke server' };
     }
   };
 
   const initHostingerDatabase = async () => {
     try {
-      const res = await fetch('/api/database/init', { method: 'POST' });
-      const data = await res.json();
+      const res = await safeFetchJson<any>('/api/database/init', { method: 'POST' });
       await refreshDatabaseStatus();
-      if (data.success) {
+      if (res.success) {
         await loadDataFromBackend();
       }
-      return data;
+      return {
+        success: res.success,
+        message: res.message || (res.success ? 'Tabel berhasil dibuat' : 'Gagal menginisialisasi tabel database'),
+        tables: res.data?.tables
+      };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Koneksi ke endpoint gagal' };
+      return { success: false, message: err?.message || 'Koneksi ke endpoint gagal' };
     }
   };
 
@@ -376,19 +458,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     database: string;
   }) => {
     try {
-      const res = await fetch('/api/database/connect-and-init', {
+      const res = await safeFetchJson<any>('/api/database/connect-and-init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(creds)
       });
-      const data = await res.json();
+
       await refreshDatabaseStatus();
-      if (data.success) {
+      if (res.success) {
         await loadDataFromBackend();
       }
-      return data;
+
+      return {
+        success: res.success,
+        message: res.message || (res.success ? 'Database berhasil tersambung!' : 'Gagal menyambungkan ke database'),
+        tables: res.data?.tables
+      };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Koneksi ke endpoint gagal' };
+      return { success: false, message: err?.message || 'Koneksi ke endpoint gagal' };
     }
   };
 
@@ -414,10 +501,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Fetch Server Health & Database Status on mount
   useEffect(() => {
-    fetch('/api/health')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.database) {
+    safeFetchJson<any>('/api/health')
+      .then(res => {
+        if (res.success && res.data && res.data.database) {
+          const data = res.data;
           setServerStatus(prev => ({
             ...prev,
             connected: data.database.connected,

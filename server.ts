@@ -14,6 +14,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// CORS & Preflight handler agar tidak ada request diblokir atau menghasilkan respons tak terduga
+app.use((req: Request, res: Response, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -548,21 +559,26 @@ TELEGRAM_CHAT_ID=${process.env.TELEGRAM_CHAT_ID || ''}
       tables: tablesStatus
     });
   } catch (err: any) {
+    console.error('[MySQL Connection Attempt Error]:', err);
     let friendlyMsg = err.message || 'Koneksi ke MySQL gagal.';
     if (err.code === 'ER_BAD_DB_ERROR' || err.errno === 1049) {
       friendlyMsg = `Database "${cleanDb}" belum dibuat di Hostinger hPanel. Di Hostinger, database harus dibuat terlebih dahulu di menu hPanel -> Databases -> MySQL Databases.`;
     } else if (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045) {
       friendlyMsg = `Akses ditolak (Username atau Password keliru). Pastikan user "${cleanUser}" dan password yang dimasukkan sesuai dengan yang Anda buat di hPanel Hostinger.`;
     } else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
-      friendlyMsg = `Tidak dapat menghubungi server MySQL di "${cleanHost}:${dbPort}". Jika aplikasi dan MySQL berada di Hostinger yang sama, gunakan host "localhost" atau "127.0.0.1".`;
+      if (cleanHost === 'localhost' || cleanHost === '127.0.0.1') {
+        friendlyMsg = `Koneksi ke localhost ditolak. Host "localhost" hanya berlaku ketika aplikasi Node.js dijalankan langsung di server Hostinger yang sama dengan database MySQL. Jika Anda menguji dari pratinjau browser / cloud luar, gunakan Host MySQL publik/remote Hostinger (misal: srvXXX.hstgr.io atau IP server) dan aktifkan "Remote MySQL" di hPanel Hostinger, ATAU gunakan Metode B (Salin Skrip SQL ke phpMyAdmin) yang 100% instan tanpa kendala jaringan.`;
+      } else {
+        friendlyMsg = `Tidak dapat menghubungi server MySQL di "${cleanHost}:${dbPort}". Pastikan alamat host benar dan port 3306 terbuka.`;
+      }
     } else if (err.code === 'ETIMEDOUT') {
-      friendlyMsg = `Koneksi timeout ke "${cleanHost}:${dbPort}". Pastikan host database benar dan port 3306 terbuka.`;
+      friendlyMsg = `Koneksi timeout ke "${cleanHost}:${dbPort}". Server MySQL tidak merespons. Jika menghubungkan dari luar Hostinger, buka hPanel -> Databases -> Remote MySQL, lalu tambahkan IP "%" (izinkan semua IP) dan tautkan user database Anda.`;
     }
 
     res.status(400).json({
       success: false,
       message: friendlyMsg,
-      errorCode: err.code
+      errorCode: err.code || 'DB_CONNECT_ERROR'
     });
   }
 });
@@ -1570,6 +1586,18 @@ app.post(['/api/telegram/test', '/api/telegram/test/'], async (req: Request, res
     res.status(500).json({
       success: false,
       message: `Koneksi gagal: ${err.message}`
+    });
+  }
+});
+
+// Middleware Global Error Handler: Mencegah Express mengembalikan stack trace HTML
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error('[API Server Error]:', err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'Terjadi kesalahan internal pada server backend Node.js',
+      errorCode: err.code || 'INTERNAL_SERVER_ERROR'
     });
   }
 });

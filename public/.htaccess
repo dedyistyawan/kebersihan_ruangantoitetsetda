@@ -1,0 +1,22 @@
+# ====================================================================
+# SIM-KTR - Hostinger Apache / LiteSpeed Web Server Configuration
+# ====================================================================
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Layani file statis yang benar-benar ada langsung dari disk
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Fallback routing SPA ke index.html jika bukan file fisik
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Keamanan dan Kompresi
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-XSS-Protection "1; mode=block"
+</IfModule>

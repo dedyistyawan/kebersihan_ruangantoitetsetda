@@ -354,10 +354,10 @@ TELEGRAM_CHAT_ID=-1001234567890`;
 
         {connectFeedback && (
           <div
-            className={`p-4 rounded-2xl text-xs flex items-start space-x-3 ${
+            className={`p-4 sm:p-5 rounded-2xl text-xs flex items-start space-x-3 ${
               connectFeedback.success
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                : 'bg-rose-50 text-rose-800 border border-rose-200'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-sm'
+                : 'bg-rose-50 text-rose-900 border border-rose-200 shadow-sm'
             }`}
           >
             {connectFeedback.success ? (
@@ -365,12 +365,29 @@ TELEGRAM_CHAT_ID=-1001234567890`;
             ) : (
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             )}
-            <div className="space-y-1">
-              <span className="font-bold block">{connectFeedback.message}</span>
-              {connectFeedback.success && (
+            <div className="space-y-2 flex-1">
+              <span className="font-bold text-sm block leading-snug">{connectFeedback.message}</span>
+              {connectFeedback.success ? (
                 <p className="text-[11px] text-emerald-700">
                   Buka kembali phpMyAdmin di Hostinger Anda, klik nama database di panel kiri &rarr; sekarang seluruh 9 tabel sudah muncul dan terisi data!
                 </p>
+              ) : (
+                <div className="p-3 bg-white/90 rounded-xl border border-rose-200 text-[11px] text-slate-700 space-y-2">
+                  <p className="font-semibold text-rose-800">
+                    💡 Rekomendasi Solusi Cepat & 100% Berhasil:
+                  </p>
+                  <p>
+                    Jika Anda menguji aplikasi dari luar (sebelum di-upload ke Hostinger) atau jika Remote MySQL Hostinger Anda belum diaktifkan, gunakan <strong>Metode B (Eksekusi Tab SQL phpMyAdmin)</strong> di bawah. Anda cukup menyalin skrip SQL dan menempelkannya di phpMyAdmin, seluruh 9 tabel akan langsung selesai dibuat dalam 30 detik tanpa perlu khawatir kendala jaringan.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleCopySqlFromPublic}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs inline-flex items-center space-x-1.5 transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{sqlCopied ? 'Tersalin ke Clipboard!' : 'Salin Skrip SQL Sekarang & Buka phpMyAdmin'}</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
