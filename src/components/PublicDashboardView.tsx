@@ -101,7 +101,7 @@ export const PublicDashboardView: React.FC = () => {
       {/* STATISTIK RINGKAS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-bold">
             <span>Fasilitas Dipantau</span>
             <Building2 className="w-4 h-4 text-blue-600" />
           </div>
@@ -154,7 +154,7 @@ export const PublicDashboardView: React.FC = () => {
 
         <div className="col-span-2 lg:col-span-1 bg-white p-4 rounded-3xl border border-purple-200 shadow-sm bg-gradient-to-b from-white to-purple-50/40 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-purple-800 font-bold">
-            <span>Laporan Warga</span>
+            <span>Laporan</span>
             <MessageSquareWarning className="w-4 h-4 text-purple-600" />
           </div>
           <div className="mt-2">

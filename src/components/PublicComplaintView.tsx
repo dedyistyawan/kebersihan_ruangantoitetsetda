@@ -469,12 +469,11 @@ export const PublicComplaintView: React.FC = () => {
 
                     <button
                       onClick={() => {
-                        if (assignedStaff) setCurrentUser(assignedStaff);
-                        setActiveTab('petugas');
+                        setActiveTab('dasbor-publik');
                       }}
                       className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-md shadow-blue-500/20"
                     >
-                      <span>Buka Dasbor Petugas &rarr;</span>
+                      <span>Lihat Status di Dasbor Publik &rarr;</span>
                     </button>
                   </div>
                 </div>

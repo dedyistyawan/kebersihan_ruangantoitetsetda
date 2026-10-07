@@ -30,7 +30,8 @@ export type AppViewTab =
   | 'petugas'
   | 'supervisor'
   | 'database'
-  | 'hostinger-deploy';
+  | 'hostinger-deploy'
+  | 'login';
 
 interface AppContextType {
   // Data States
@@ -697,7 +698,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // UI & Session States
   const [currentUser, setCurrentUser] = useState<Pengampu | null>(() => {
     const saved = localStorage.getItem('simktr_session_v2');
-    return saved ? JSON.parse(saved) : INITIAL_PENGAMPU[4]; // Default to Supervisor Agus
+    return saved ? JSON.parse(saved) : null;
   });
 
   const [activeTab, setActiveTab] = useState<AppViewTab>('dasbor-publik');
@@ -872,6 +873,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutUser = () => {
     setCurrentUser(null);
+    localStorage.removeItem('simktr_session_v2');
+    setActiveTab('dasbor-publik');
   };
 
   // --------------------------------------------------------------------------
